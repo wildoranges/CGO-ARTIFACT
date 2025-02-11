@@ -5,6 +5,7 @@
 ```
 - cgo.dump # our database, including all repos, issues, commits we studied.
 - go1.17.7_cgoptr.tar.gz # our approaches based on Go1.17.7
+- CGOAnalyzer/ # our CGOAnalyzer tool introduced in the paper
 ```
 
 ### Import our database: `cgo.dump`
@@ -148,3 +149,6 @@ you can add this to your `$PATH`. and modify your `$GOROOT` if you want to use t
 
 see [Go Wiki: InstallTroubleshooting - The Go Programming Language](https://go.dev/wiki/InstallTroubleshooting) for how to set `$GOROOT`.
 
+### Our CGOAnalyzer tool
+
+see [CGOAnalyzer/README.md](CGOAnalyzer/README.md) for details.
