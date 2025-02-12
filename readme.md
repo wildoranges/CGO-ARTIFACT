@@ -1,153 +1,130 @@
 # README
 
-### file structure
+This repository cotains the data and code for the paper "An Empirical Study of CGO Usage in Go Projects – Distribution, Purposes, Patterns and Critical Issues".
 
+file structure:
 ```
-- cgo.dump # our database, including all repos, issues, commits we studied.
-- go1.17.7_cgoptr.tar.gz # our approaches based on Go1.17.7
-- CGOAnalyzer/ # our CGOAnalyzer tool introduced in the paper
-```
-
-### Import our database: `cgo.dump`
-
-#### Step1. Install Docker
-
-If Docker is not already installed, follow these steps:
-
-1. **Linux/MacOS**:
-   - Refer to the official documentation to install Docker: https://docs.docker.com/get-docker/
-2. **Windows**:
-   - Install Docker Desktop: https://www.docker.com/products/docker-desktop/
-
-After installation, verify Docker is running with the following command:
-
-```bash
-docker --version
+- cgo.dump # our database, including all repos, files, issues, etc we studied.
+- go1.17.7_cgoptr.tar.gz # our temporary approach based on Go1.17.7 to eliminate unnecessary pointer checks.
+- CGOAnalyzer/ # our CGOAnalyzer tool which is used to analyze the CGO usage in Go projects.
 ```
 
-------
+## How to use
 
-#### Step2. Install PostgreSQL 13 Using Docker
+### Our dataset: `cgo.dump`
 
-1. Pull the PostgreSQL 13 image:
+Our dataset is stored in a PostgreSQL database dump file named `cgo.dump`. For how to import the dump file into your PostgreSQL database, see the [installation guide](install.md).
 
-   ```bash
-   docker pull postgres:13
-   ```
+some important tables & views in the database:
 
-2. Create and run a PostgreSQL container:
+- `repos`: all the Go repositories we got.
+- `repository_stars_1000`: the top 1000 starred Go repositories.
+- `rp_stars_1000_valid`: the top 1000 starred Go repositories that are valid (i.e., the repository is not out-of-date).
+- `rp_cgo`: the Go repositories that use CGO.
+- `package`: all the packages in the repositories.
+- `file`: all the files in the repositories.
+- `cgo_issues_final`: identified CGO-related issues and corresponding labels.
+- `cgo_funciton`: identified CGO functions.
+- `cgo_header`: identified CGO headers.
+- `cgo_invocation`: identified CGO invocations.
+- `export_function`: identified exported Go functions.
+- `patterns`: identified CGO patterns.
+- ...
 
-   ```bash
-   docker run -d \
-     --name postgres13 \
-     -e POSTGRES_USER=your_username \
-     -e POSTGRES_PASSWORD=your_password \
-     -e POSTGRES_DB=your_database \
-     -p 5432:5432 \
-     postgres:13
-   ```
 
-   - **POSTGRES_USER**: Set the PostgreSQL username (e.g., `postgres`).
-   - **POSTGRES_PASSWORD**: Set the PostgreSQL password.
-   - **POSTGRES_DB**: Set the default database name.
-   - **-p 5432:5432**: Map port 5432 on your machine to port 5432 in the container.
+`rp_stars_1000_valid` preview(using PgAdmin mentioned in the installation guide):
 
-3. Check the container status:
+![](figures/repo.png)
 
-   ```bash
-   docker ps
-   ```
-   If successful, you will see a container named `postgres13`.
 
-4. Access the PostgreSQL container:
+### Use our approach based on Go1.17.7 to eliminate unnecessary pointer checks
 
-   ```bash
-   docker exec -it postgres13 bash
-   ```
+We provide a temporary approach based on Go1.17.7 to eliminate unnecessary CGO pointer checks. The approach is implemented by modifying the Go toolchain source code. The modified toolchain can be used to build Go projects, which can eliminate unnecessary pointer checks in the generated binary. To build our modified Go toolchain, see [installation guide](install.md).
 
-#### Step3. Copy the `cgo.dump` File into the Container
+you can use `go tool cgo` command to generate the code after CGO preprocessing and see the difference between the original and modified toolchain. For example, for the following code `main.go`:
 
-Run the following command on your host machine to copy `cgo.dump` into the container:
+```go
+package main
 
-```bash
-docker cp cgo.dump postgres13:/tmp/cgo.dump
+/*
+void testPtr(void *p) {}
+*/
+import "C"
+import "unsafe"
+
+func main() {
+	b := []byte{1, 2, 3}
+	var p *byte
+	p = &b[0]
+	C.testPtr(unsafe.Pointer(p))
+}
 ```
 
-#### Step4. Import the `cgo.dump` File
+You can use `go tool cgo main.go` to generate the code after CGO preprocessing. The generated preprocessed code(`main.cgo1.go`) will be in the `_obj` directory. The `_obj` directory contains the following files:
 
-1. Access the container and switch to the PostgreSQL user:
-
-   ```bash
-   docker exec -it postgres13 bash
-   su - postgres
-   ```
-
-2. Restore the database using `pg_restore`:
-
-   ```bash
-   pg_restore -U your_username -d your_database /tmp/cgo.dump
-   ```
-
-   - **your_username**: Specify the database username.
-   - **your_database**: Specify the target database name.
-
-3. To clean the target database before importing, add the `--clean` option:
-
-   ```bash
-   pg_restore -U your_username -d your_database --clean /tmp/cgo.dump
-   ```
-
-4. Verify the import: Log into the database and check the data:
-
-   ```bash
-   psql -U your_username -d your_database
-   \dt
-   ```
-
-### Use our approach based on Go1.17.7
-
-#### Step1. Download Go1.7.7 toolchain source code
-
-1. download Go1.17.7 toolchain source code: https://go.dev/dl/go1.17.7.src.tar.gz
-```bash
-wget https://go.dev/dl/go1.17.7.src.tar.gz
 ```
-2. extract toolchain source code
-
-```bash
-tar -xzvf go1.17.7.src.tar.gz
+_obj
+├── _cgo_export.c
+├── _cgo_export.h
+├── _cgo_flags
+├── _cgo_gotypes.go
+├── _cgo_main.c
+├── _cgo_.o
+├── main.cgo1.go // code after CGO preprocessing
+└── main.cgo2.c
 ```
 
-#### Step2. Use our `go1.17.7_cgoptr.tar.gz`
+You can compare the generated `main.cgo1.go` file between the original and modified toolchain to see the difference.
 
-1. extract our `go1.17.7_cgoptr.tar.gz`
-```bash
-tar -xzvf go1.17.7_cgoptr.tar.gz
-```
-2. overwrite the original Go1.17.7 toolchain source with the extracted file
-```bash
-cd go1.17.7_cgoptr
-cp -r * ../go/
-```
-3. build the modifiled toochain and validate toolchain correctness
+`main.cgo1.go` generated by the original Go toolchain:
 
-```bash
-cd ../go/src
-./all.bash # build and test
-```
+```go
+// Code generated by cmd/cgo; DO NOT EDIT.
 
-note: to build the modified toolchain, your machine must have Go installation (need the Go compiler to build the Go toolchain). ref [Download and install - The Go Programming Language](https://go.dev/doc/install) for details.
+//line main.go:1:1
+package main
 
-4. verify your build
+/*
+void testPtr(void *p) {}
+*/
+import _ "unsafe"
+import "unsafe"
 
-```bash
-cd ../bin
-./go --version
+func main() {
+	b := []byte{1, 2, 3}
+	var p *byte
+	p = &b[0]
+	func() { _cgo0 := /*line :13:12*/unsafe.Pointer(p); _cgoCheckPointer(_cgo0, nil); _Cfunc_testPtr(_cgo0); }()
+}
 ```
 
-you can add this to your `$PATH`. and modify your `$GOROOT` if you want to use the modified toolchain later. 
+`main.cgo1.go` generated by our modified Go toolchain:
 
-see [Go Wiki: InstallTroubleshooting - The Go Programming Language](https://go.dev/wiki/InstallTroubleshooting) for how to set `$GOROOT`.
+```go
+// Code generated by cmd/cgo; DO NOT EDIT.
+
+//line main.go:1:1
+package main
+
+/*
+void testPtr(void *p) {}
+*/
+import _ "unsafe"
+import "unsafe"
+
+func main() {
+	b := []byte{1, 2, 3}
+	var p *byte
+	p = &b[0]
+	( /*line :13:2*/_Cfunc_testPtr /*line :13:10*/)(unsafe.Pointer(p))
+}
+```
+
+The difference is that the unnecessary pointer check `_cgoCheckPointer` is eliminated by our modified toolchain.
+
+### Our proposal
+
+https://github.com/golang/go/issues/70274 is our proposal to integrate CGO as part of the Go compiler, and to reuse the compiler's analysis pass results, such as type inference and pointer analysis results. Our proposal is grouped with https://github.com/golang/go/issues/16623 in the Go issue tracker.
 
 ### Our CGOAnalyzer tool
 
